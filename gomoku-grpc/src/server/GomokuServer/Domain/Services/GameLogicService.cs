@@ -24,9 +24,45 @@ public class GameLogicService
         }
 
         int playerNumber = playerId == room.Player1.Id ? 1 : 2;
-        room.Board.
+        room.Board.PlaceStone(row, col, playerNumber);
 
-        
-        
+        if(room.Board.CheckWin(row, col, playerNumber))
+        {
+            room.Status = GameStatus.Finished;
+            return (true, $"Player {playerNumber} 승리!");
+        }
+
+        room.CurrentPlayerNumber = room.CurrentPlayerNumber == 1 ? 2 : 1;
+        return (true, "돌이 놓였습니다.");
+    }
+
+    public GameState GetGameState(GameRoom room, string? winnerId = null)
+    {
+        var stones = new List<Stone>();
+        for (int i = 0; i < room.Board.Size; i++)
+        {
+            for (int j = 0; j < room.Board.Size; j++)
+            {
+                int cell = room.Board.GetCell(i, j);
+                if(cell != 0)
+                {
+                    stones.Add(new Stone
+                    {
+                        Position = new Position { Row = i, Col = j },
+                        PlayerNumber = cell
+                    });
+                }
+
+            }
+        }
+
+        return new GameState
+        {
+            Stones = { stones },
+            CurrentPlayer = room.CurrentPlayerNumber,
+            Status = room.Status,
+            WinnerId = winnerId ?? string.Empty,
+            BoardSize = room.Board.Size
+        }
     }
 }
