@@ -17,7 +17,7 @@
 
   <!-- Proto 파일 링크 -->
   <ItemGroup>
-    <Protobuf Include="..\..\proto\gomoku.proto" GrpcServices="Server" Link="Protos\gomoku.proto" />
+    <Protobuf Include="..\..\..\proto\gomoku.proto" GrpcServices="Server" Link="Protos\gomoku.proto" />
   </ItemGroup>
 
 </Project>

@@ -29,6 +29,7 @@ public class GameLogicService
         if(room.Board.CheckWin(row, col, playerNumber))
         {
             room.Status = GameStatus.Finished;
+            room.WinnerId = playerId;
             return (true, $"Player {playerNumber} 승리!");
         }
 
@@ -61,8 +62,8 @@ public class GameLogicService
             Stones = { stones },
             CurrentPlayer = room.CurrentPlayerNumber,
             Status = room.Status,
-            WinnerId = winnerId ?? string.Empty,
+            WinnerId = !string.IsNullOrEmpty(room.WinnerId) ? room.WinnerId : (winnerId ?? string.Empty),
             BoardSize = room.Board.Size
-        }
+        };
     }
 }

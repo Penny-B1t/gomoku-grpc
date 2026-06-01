@@ -1,10 +1,178 @@
-﻿@page
+@page
 @model IndexModel
 @{
-    ViewData["Title"] = "Home page";
+    ViewData["Title"] = "오목 게임 - 로비";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="container">
+    <div class="row">
+        <div class="col-md-6 mx-auto">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">🎮 오목 게임 로비</h2>
+                    
+                    <div class="mb-4">
+                        <h5>새 게임 만들기</h5>
+                        <form id="createRoomForm">
+                            @Html.AntiForgeryToken()
+                            <div class="form-group mb-3">
+                                <label for="playerName">플레이어 닉네임</label>
+                                <input type="text" class="form-control" id="playerName" required placeholder="닉네임을 입력하세요">
+                            </div>
+                            <div class="form-group mb-3">
+                                <label for="roomName">방 이름</label>
+                                <input type="text" class="form-control" id="roomName" required placeholder="방 이름을 입력하세요">
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">방 생성 및 입장</button>
+                        </form>
+                    </div>
+
+                    <hr>
+
+                    <div>
+                        <h5>게임 방 목록</h5>
+                        <button id="refreshRooms" class="btn btn-secondary mb-3">🔄 새로고침</button>
+                        <div id="roomList" class="list-group">
+                            <div class="text-center text-muted">방 목록을 불러오는 중...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
+
+@section Scripts {
+    <script>
+        let currentPlayerName = '';
+        
+        $(document).ready(function() {
+            loadRoomList();
+            
+            // 방 생성 폼 제출
+            $('#createRoomForm').on('submit', function(e) {
+                e.preventDefault();
+                const playerName = $('#playerName').val().trim();
+                const roomName = $('#roomName').val().trim();
+                
+                if (!playerName || !roomName) {
+                    alert('닉네임과 방 이름을 입력해주세요.');
+                    return;
+                }
+                
+                createRoom(roomName, playerName);
+            });
+            
+            // 새로고침 버튼
+            $('#refreshRooms').on('click', function() {
+                loadRoomList();
+            });
+            
+            // 주기적 방 목록 갱신
+            setInterval(loadRoomList, 5000);
+        });
+        
+        function loadRoomList() {
+            fetch('/?handler=RoomList')
+                .then(response => response.json())
+                .then(data => {
+                    const roomListDiv = $('#roomList');
+                    roomListDiv.empty();
+                    
+                    if (data.rooms && data.rooms.length > 0) {
+                        data.rooms.forEach(room => {
+                            const statusBadge = getStatusBadge(room.status);
+                            const playerCount = room.playerCount;
+                            const canJoin = room.status === 0 && playerCount < 2; // WAITING
+                            
+                            roomListDiv.append(`
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-1">${escapeHtml(room.roomName)}</h6>
+                                        <small class="text-muted">ID: ${room.roomId.substring(0, 8)}...</small>
+                                        ${statusBadge}
+                                    </div>
+                                    <div>
+                                        <span class="badge bg-info me-2">${playerCount}/2</span>
+                                        ${canJoin ? 
+                                            `<button class="btn btn-sm btn-success" onclick="joinRoom('${room.roomId}')">입장</button>` : 
+                                            `<button class="btn btn-sm btn-secondary" disabled>${playerCount >= 2 ? '만석' : '게임중'}</button>`
+                                        }
+                                    </div>
+                                </div>
+                            `);
+                        });
+                    } else {
+                        roomListDiv.append('<div class="text-center text-muted">생성된 방이 없습니다.</div>');
+                    }
+                })
+                .catch(error => {
+                    console.error('방 목록 로드 실패:', error);
+                });
+        }
+        
+        function getStatusBadge(status) {
+            switch(status) {
+                case 0: return '<span class="badge bg-success">대기중</span>';
+                case 1: return '<span class="badge bg-warning">게임중</span>';
+                case 2: return '<span class="badge bg-secondary">종료됨</span>';
+                default: return '';
+            }
+        }
+        
+        function createRoom(roomName, playerName) {
+            fetch('/?handler=CreateRoom', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                },
+                body: JSON.stringify({ roomName, playerName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `/Game?roomId=${data.roomId}&playerName=${encodeURIComponent(playerName)}&isPlayer1=true&playerId=${data.playerId}`;
+                } else {
+                    alert('방 생성에 실패했습니다.');
+                }
+            })
+            .catch(error => {
+                console.error('방 생성 실패:', error);
+                alert('방 생성 중 오류가 발생했습니다.');
+            });
+        }
+        
+        function joinRoom(roomId) {
+            const playerName = prompt('닉네임을 입력하세요:');
+            if (!playerName) return;
+            
+            fetch('/?handler=JoinRoom', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                },
+                body: JSON.stringify({ roomId, playerName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    window.location.href = `/Game?roomId=${roomId}&playerName=${encodeURIComponent(playerName)}&isPlayer1=false&playerId=${data.playerId}`;
+                } else {
+                    alert(data.message || '방 입장에 실패했습니다.');
+                }
+            })
+            .catch(error => {
+                console.error('방 입장 실패:', error);
+                alert('방 입장 중 오류가 발생했습니다.');
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+}

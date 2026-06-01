@@ -1,0 +1,332 @@
+@page
+@model GameModel
+@{
+    ViewData["Title"] = "오목 게임";
+}
+
+<div class="container-fluid">
+    @Html.AntiForgeryToken()
+    <div class="row">
+        <!-- 게임 보드 -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body text-center">
+                    <h4 id="gameStatus" class="mb-3">게임 로딩 중...</h4>
+                    
+                    <div class="game-board-container">
+                        <canvas id="gameBoard" width="600" height="600"></canvas>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button id="surrenderBtn" class="btn btn-danger" style="display:none;">🏳️ 항복</button>
+                        <button id="newGameBtn" class="btn btn-primary" onclick="window.location.href='/'">🏠 로비로 돌아가기</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 게임 정보 -->
+        <div class="col-md-4">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h5 class="card-title">게임 정보</h5>
+                    <div id="gameInfo">
+                        <p><strong>방 ID:</strong> <span id="roomIdDisplay">@Model.RoomId</span></p>
+                        <p><strong>내 닉네임:</strong> <span id="myName">@Model.PlayerName</span></p>
+                        <p><strong>내 돌:</strong> <span id="myStone"></span></p>
+                        <p><strong>현재 턴:</strong> <span id="currentTurn">-</span></p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">게임 로그</h5>
+                    <div id="gameLog" class="game-log" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-muted">게임이 시작되면 여기에 로그가 표시됩니다.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .game-board-container {
+        display: inline-block;
+        border: 2px solid #333;
+        background-color: #DEB887;
+    }
+    
+    #gameBoard {
+        cursor: pointer;
+    }
+    
+    .game-log {
+        font-size: 0.9em;
+    }
+    
+    .game-log div {
+        padding: 2px 0;
+        border-bottom: 1px solid #eee;
+    }
+</style>
+
+@section Scripts {
+    <script>
+        const roomId = '@Model.RoomId';
+        const playerName = '@Model.PlayerName';
+        const isPlayer1 = @Model.IsPlayer1.ToString().ToLower();
+        const playerId = '@Model.PlayerId';
+        
+        let boardSize = 15;
+        let cellSize;
+        let gameBoard;
+        let ctx;
+        let currentGameState = null;
+        let myPlayerNumber = isPlayer1 ? 1 : 2;
+        let gameOver = false;
+        let pollingInterval;
+        
+        $(document).ready(function() {
+            gameBoard = document.getElementById('gameBoard');
+            ctx = gameBoard.getContext('2d');
+            cellSize = gameBoard.width / boardSize;
+            
+            // 내 정보 표시
+            $('#myStone').text(isPlayer1 ? '⚫ 흑돌 (선공)' : '⚪ 백돌 (후공)');
+            
+            // 게임 보드 그리기
+            drawEmptyBoard();
+            
+            // 게임 상태 폴링 시작
+            startPolling();
+            
+            // 게임 보드 클릭 이벤트
+            $('#gameBoard').on('click', function(e) {
+                if (gameOver) return;
+                
+                const rect = gameBoard.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                const col = Math.round((x - cellSize / 2) / cellSize);
+                const row = Math.round((y - cellSize / 2) / cellSize);
+                
+                if (row >= 0 && row < boardSize && col >= 0 && col < boardSize) {
+                    placeStone(row, col);
+                }
+            });
+            
+            // 항복 버튼
+            $('#surrenderBtn').on('click', function() {
+                if (confirm('정말 항복하시겠습니까?')) {
+                    surrender();
+                }
+            });
+        });
+        
+        function drawEmptyBoard() {
+            // 배경
+            ctx.fillStyle = '#DEB887';
+            ctx.fillRect(0, 0, gameBoard.width, gameBoard.height);
+            
+            // 격자선
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            
+            for (let i = 0; i < boardSize; i++) {
+                // 가로선
+                ctx.beginPath();
+                ctx.moveTo(cellSize / 2, cellSize / 2 + i * cellSize);
+                ctx.lineTo(gameBoard.width - cellSize / 2, cellSize / 2 + i * cellSize);
+                ctx.stroke();
+                
+                // 세로선
+                ctx.beginPath();
+                ctx.moveTo(cellSize / 2 + i * cellSize, cellSize / 2);
+                ctx.lineTo(cellSize / 2 + i * cellSize, gameBoard.height - cellSize / 2);
+                ctx.stroke();
+            }
+            
+            // 화점 (별점)
+            const starPoints = boardSize === 15 ? [[3,3], [3,7], [3,11], [7,3], [7,7], [7,11], [11,3], [11,7], [11,11]] : [];
+            ctx.fillStyle = '#000';
+            starPoints.forEach(([row, col]) => {
+                ctx.beginPath();
+                ctx.arc(cellSize / 2 + col * cellSize, cellSize / 2 + row * cellSize, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            });
+        }
+        
+        function drawStone(row, col, playerNumber) {
+            const x = cellSize / 2 + col * cellSize;
+            const y = cellSize / 2 + row * cellSize;
+            const radius = cellSize / 2 - 2;
+            
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            
+            if (playerNumber === 1) {
+                // 흑돌
+                ctx.fillStyle = '#000';
+                ctx.fill();
+                ctx.strokeStyle = '#333';
+                ctx.stroke();
+            } else {
+                // 백돌
+                ctx.fillStyle = '#FFF';
+                ctx.fill();
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.lineWidth = 1;
+            }
+        }
+        
+        function updateBoard(gameState) {
+            // 보드 초기화
+            drawEmptyBoard();
+            
+            // 모든 돌 그리기
+            const stones = gameState.stones || gameState.Stones;
+            if (stones) {
+                stones.forEach(stone => {
+                    const pos = stone.position || stone.Position;
+                    const row = pos ? (pos.row !== undefined ? pos.row : pos.Row) : null;
+                    const col = pos ? (pos.col !== undefined ? pos.col : pos.Col) : null;
+                    const playerNumber = stone.playerNumber !== undefined ? stone.playerNumber : stone.PlayerNumber;
+                    
+                    if (row !== null && col !== null) {
+                        drawStone(row, col, playerNumber);
+                    }
+                });
+            }
+            
+            // 상태 업데이트
+            currentGameState = gameState;
+            updateGameStatus(gameState);
+        }
+        
+        function updateGameStatus(gameState) {
+            const statusElement = $('#gameStatus');
+            const surrenderBtn = $('#surrenderBtn');
+            
+            const status = gameState.status !== undefined ? gameState.status : gameState.Status;
+            const currentPlayer = gameState.currentPlayer !== undefined ? gameState.currentPlayer : gameState.CurrentPlayer;
+            const winnerId = gameState.winnerId !== undefined ? gameState.winnerId : gameState.WinnerId;
+            const boardSizeVal = gameState.boardSize !== undefined ? gameState.boardSize : gameState.BoardSize;
+
+            if (status === 0) { // WAITING
+                statusElement.html('<span class="text-warning">⏳ 상대방을 기다리는 중...</span>');
+                surrenderBtn.hide();
+                gameOver = true;
+            } else if (status === 1) { // PLAYING
+                const isMyTurn = currentPlayer === myPlayerNumber;
+                statusElement.html(isMyTurn ? 
+                    '<span class="text-success">✅ 당신의 차례입니다</span>' : 
+                    '<span class="text-muted">⏰ 상대방의 차례입니다</span>');
+                surrenderBtn.show();
+                gameOver = false;
+            } else if (status === 2) { // FINISHED
+                const isWinner = winnerId && (winnerId === 'current_player' || winnerId === playerId);
+                statusElement.html(isWinner ? 
+                    '<span class="text-primary">🏆 승리했습니다!</span>' : 
+                    '<span class="text-danger">😢 패배했습니다.</span>');
+                surrenderBtn.hide();
+                gameOver = true;
+                addLog('게임이 종료되었습니다.');
+            }
+            
+            // 현재 턴 표시
+            const turnText = currentPlayer === 1 ? '⚫ 흑돌' : '⚪ 백돌';
+            $('#currentTurn').text(turnText);
+        }
+        
+        function placeStone(row, col) {
+            fetch('/Game?handler=PlaceStone', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                },
+                body: JSON.stringify({ roomId, playerId, row, col })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateBoard(data.gameState);
+                    addLog(`${playerName}님이 (${row}, ${col})에 돌을 놓았습니다.`);
+                } else {
+                    alert(data.message || '돌을 놓을 수 없습니다.');
+                }
+            })
+            .catch(error => {
+                console.error('돌 놓기 실패:', error);
+            });
+        }
+        
+        function surrender() {
+            fetch('/Game?handler=Surrender', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'RequestVerificationToken': $('input[name="__RequestVerificationToken"]').val()
+                },
+                body: JSON.stringify({ roomId, playerId, playerName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateBoard(data.gameState);
+                    addLog(`${playerName}님이 항복했습니다.`);
+                }
+            })
+            .catch(error => {
+                console.error('항복 실패:', error);
+            });
+        }
+        
+        function startPolling() {
+            // 처음 상태 로드
+            fetchGameState();
+            
+            // 1초마다 상태 갱신
+            pollingInterval = setInterval(fetchGameState, 1000);
+        }
+        
+        function fetchGameState() {
+            fetch(`/Game?handler=GameState&roomId=${roomId}&playerId=${playerId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.gameState) {
+                        updateBoard(data.gameState);
+                        
+                        // 첫 로드 시 로그 추가
+                        if (!currentGameState && data.gameState.stones && data.gameState.stones.length > 0) {
+                            addLog('게임이 시작되었습니다.');
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('게임 상태 조회 실패:', error);
+                });
+        }
+        
+        function addLog(message) {
+            const logDiv = $('#gameLog');
+            const time = new Date().toLocaleTimeString();
+            logDiv.prepend(`<div>[${time}] ${message}</div>`);
+            
+            // 로그가 너무 많으면 오래된 것 제거
+            if (logDiv.children().length > 50) {
+                logDiv.children().last().remove();
+            }
+        }
+        
+        // 페이지 이탈 시 폴링 정리
+        $(window).on('beforeunload', function() {
+            clearInterval(pollingInterval);
+        });
+    </script>
+}

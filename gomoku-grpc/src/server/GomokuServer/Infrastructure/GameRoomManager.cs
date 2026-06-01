@@ -12,7 +12,7 @@ public class GameRoomManager
     // 추가된 Room 정보 반환 메서드
     public GameRoom CreateRoom(string name, string creatorName)
     {
-        var room, = new GameRoom(name, creatorName)
+        var room = new GameRoom(name, creatorName);
         _rooms.TryAdd(room.Id, room);
         return room;
     }

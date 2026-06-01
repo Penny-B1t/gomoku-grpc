@@ -7,7 +7,7 @@ package gomoku;
 // 빈 메시지 타입 정의
 message Empty{}
 
-message Postion {
+message Position {
     int32 row = 1;
     int32 col = 2;
 }
@@ -20,7 +20,7 @@ message PlayerInfo {
 
 // 돌 정보
 message Stone {
-    Postion position = 1;
+    Position position = 1;
     int32 player_number = 2;
 }
 
@@ -63,12 +63,13 @@ message JoinRoomResponse {
     PlayerInfo opponent = 2;
     int32 board_size = 3;
     bool is_player = 4;
+    PlayerInfo joiner = 5;
 }
 
 message PlaceStoneRequest {
     string room_id = 1;
     string player_id = 2;
-    Postion position = 3;
+    Position position = 3;
 }
 
 message GameState {
@@ -77,10 +78,10 @@ message GameState {
     GameStatus status = 3;
     string winner_id = 4;
     int32 board_size = 5;
-    repeated Postion valid_moves = 6;
+    repeated Position valid_moves = 6;
 }
 
-message CahtMessage {
+message ChatMessage {
     string player_name = 1;
     string message = 2;
     int64 timestamp = 3;
@@ -89,13 +90,16 @@ message CahtMessage {
 service GameService {
     // Unary: 방 생성
     rpc CreateRoom (CreateRoomRequest) returns (CreateRoomResponse);
-    
+
     // Unary: 방 목록 조회
     rpc GetRoomList (Empty) returns (RoomList);
-    
+
     // Unary: 방 입장
     rpc JoinRoom (JoinRoomRequest) returns (JoinRoomResponse);
-    
+
+    // Unary: 현재 게임 상태 조회 (stones 포함)
+    rpc GetGameState (RoomInfo) returns (GameState);
+
     // Unary: 돌 놓기
     rpc PlaceStone (PlaceStoneRequest) returns (GameState);
     
