@@ -34,7 +34,8 @@ gRPC와 Server-Sent Events (SSE) 기술을 결합하여 가볍고 빠른 실시�
 ## 기술적 도전 및 최적화 
 
 ### 1. 방 목록 및 참여자 리스트 관리 
-- **문제**: 서버에서 gRPC 스트림 연결을 유지하며 클라이언트에 게임 상태를 실시간으로 전송하기 위해, 방별 커넥션 스트림을 저장하는 컬렉션(_watchers)에 여러 스레드(유저 행동, 관전자 입/퇴장)가 동시에 접근할 때 InvalidOperationException과 같은 컬렉션 수정 예외가 발생할 위험이 있었습니다.
+- **문제**: 
+  - 서버에서 gRPC 스트림 연결을 유지하며 클라이언트에 게임 상태를 실시간으로 전송하기 위해, 방별 커넥션 스트림을 저장하는 컬렉션(_watchers)에 여러 스레드(유저 행동, 관전자 입/퇴장)가 동시에 접근할 때 InvalidOperationException과 같은 컬렉션 수정 예외가 발생할 위험이 있었습니다.
 - **접근 및 해결**:
     - 방별 감시대상을 저장하는 리스트 자료형으로 ConcurrentBag<T>을 검토했으나, 여러 스레드가 접근하는 환경에서는 안전하지만 요소의 순서와 상관없이 특정 요소만 Remove하는 연산을 지원하지 않았습니다. 중도 퇴장하거나 연결이 해제된 특정 스트림만 정확히 찾아 제거해야 하므로, 임의 삭제가 용이한 일반 List<T>를 사용하되 동시 접근을 방지하기 위해 lock을 도입하였습니다.
       ```csharp
@@ -70,9 +71,61 @@ gRPC와 Server-Sent Events (SSE) 기술을 결합하여 가볍고 빠른 실시�
       ```
 
 
-### 2. CancellationToken을 사용한 리소스 누수 방지
-- **문제**: 기존 작성된 코드
+### 2. CancellationToken을 통한 리소스 누수 방지
+- **문제**: 
+  - 기존에는 연결된 감시자의 세션을 대기하기 위해 1초마다 주기적으로 확인하는 루프를 사용하여 타이머 스레드 및 CPU 자원을 지속적으로 낭비하고 있었습니다.
+  - 비동기 데이터 쓰기 작업에서 단순 `WaitAsync` 대기를 적용하여, 타임아웃 시 대기하는 태스크는 끝났으나 실제 소켓 수준의 전송은 백그라운드에서 취소되지 않고 지속되는 문제가 있었습니다.
+  - 브라우저와 웹 서버(SSE) 간의 연결이 끊어져도 웹 서버와 gRPC 서버 간의 스트림이 취소되지 않고 유지되어 서버 리소스가 낭비되었습니다.
+
 - **접근 및 해결**:
+  - 1초 주기 폴링 방식 대신 `CancellationToken`이 취소될 때까지 확인하기 위해 쓰레드를 할당받고 조회하는 과정없이 `await Task.Delay(Timeout.InfiniteTimeSpan, token)`를 사용하여 IOCP 큐 내부에서 비동기적으로 확인하도록 최적화하였습니다. 덕분에 연결 해제 즉시 정리할 수 있었습니다.
+     ```csharp
+     // GameService.cs - WatchGame
+     try
+     {
+         // 1초 폴링 대신 취소 이벤트 발생 시까지 대기 (CPU 자원 소모 최소화)
+         await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
+     }
+     catch (OperationCanceledException)
+     {
+         _logger.LogInformation("클라이언트 연결이 끊어졌습니다.");
+     }
+     finally
+     {
+         // 모든 상황에서 안전하게 제거되도록 보장
+         RemoveWatcher(request.RoomId, responseStream);
+     }
+     ```
+
+  - 기존 작성하였던 `WriteAsync().WaitAsync(token)`은 대기만 취소할 뿐 OS의 비동기 I/O(IOCP)를 중단하지 못하는 문제를 해결하기 위해, `WriteAsync` 내부에 직접 `cancellationToken`을 인자로 전달하여 소켓 커널 버퍼 수준의 쓰기 작업을 중단하고 모든 리소스를 반환하도록 수정했습니다.
+     ```csharp
+     // GameService.cs - TryNotifyWatcherAsync
+     try
+     {
+         // WriteAsync 메서드 매개변수로 직접 CancellationToken을 넘겨 소켓 및 커널/IOCP 수준의 리소스 즉시 해제
+         await writer.WriteAsync(gameState, cancellationToken);
+         return true;
+     }
+     catch (OperationCanceledException)
+     {
+         _logger.LogWarning("방 {RoomId} 감시자 알림 전송 타임아웃 (5초 초과)", roomId);
+         return false;
+     }
+     ```
+
+  - 사용자가 웹 브라우저를 닫아 발생하는 HTTP 연결 중단 신호(`context.RequestAborted`)를 gRPC 클라이언트 채널을 거쳐 gRPC 서버까지 직접 연결(Chaining)하여, 전체 통신 파이프라인에서 끊김 없는 동시 해제가 이뤄지도록 구성하였습니다.
+     ```csharp
+     // 1) GomokuClient.Web/Program.cs - SSE 엔드포인트
+     var ct = context.RequestAborted;
+     using var stream = gameClient.WatchGameStream(roomId, ct); // HTTP 취소 토큰(ct) 전달
+     
+     // 2) GomokuClient.Web/Services/GrpcGameClient.cs
+     public Grpc.Core.AsyncServerStreamingCall<GameState> WatchGameStream(string roomId, CancellationToken cancellationToken = default)
+     {
+         // gRPC 클라이언트 호출 시 취소 토큰 체이닝
+         return _client.WatchGame(new RoomInfo { RoomId = roomId }, cancellationToken: cancellationToken);
+     }
+     ```
   
 
 ## 기술 스택 
