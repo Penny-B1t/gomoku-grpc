@@ -1,7 +1,7 @@
-using Grpc.Core;
 using GomokuGame.Proto;
 using GomokuServer.Domain.Services;
 using GomokuServer.Infrastructure;
+using Grpc.Core;
 
 namespace GomokuServer.Services;
 
@@ -34,7 +34,7 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
             RoomId = room.Id,
             Creator = new PlayerInfo
             {
-                PlayerId  = room.Player1.Id,
+                PlayerId = room.Player1.Id,
                 PlayerName = room.Player1.Name
             }
         });
@@ -61,12 +61,12 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     public override Task<JoinRoomResponse> JoinRoom(JoinRoomRequest request, ServerCallContext context)
     {
         var room = _roomManager.GetRoom(request.RoomId);
-        if(room == null)
+        if (room == null)
         {
             throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
         }
 
-        if(!room.TryAddPlayer(request.PlayerName, out var player))
+        if (!room.TryAddPlayer(request.PlayerName, out var player))
         {
             throw new RpcException(new Status(StatusCode.FailedPrecondition, "방에 입장할 수 없습니다."));
         }
@@ -104,21 +104,21 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     public override Task<GameState> PlaceStone(PlaceStoneRequest request, ServerCallContext context)
     {
         var room = _roomManager.GetRoom(request.RoomId);
-        if(room == null)
+        if (room == null)
         {
             throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
         }
 
         var (success, message) = _gameLogic.PlaceStone(room, request.Position.Row, request.Position.Col, request.PlayerId);
 
-        if(!success)
+        if (!success)
         {
             throw new RpcException(new Status(StatusCode.FailedPrecondition, message));
         }
 
         // 룸의 상태를 보고 승자ID를 결정합니다.
         var gameState = _gameLogic.GetGameState(room, room.Status == GameStatus.Finished ? request.PlayerId : null);
-        
+
         // 현재 room에 존재하는 사용자들에게 실시간으로 게임 진행 상황을 전달합니다.
         // return은 현재 사용자에게 NotifyWatchers는 나머지 사용자들에게 정보 전달
         NotifyWatchers(request.RoomId, gameState);
@@ -128,9 +128,9 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
 
     // 소켓 서버에서 socket을 저장하는 것과 동일한 역할을 합니다.
     // 하지만 grpc는 IServerStreamWriter<>를 사용합니다.
-     public override async Task WatchGame(RoomInfo request, IServerStreamWriter<GameState> responseStream, ServerCallContext context)
-     {
-        if(!_watchers.ContainsKey(request.RoomId))
+    public override async Task WatchGame(RoomInfo request, IServerStreamWriter<GameState> responseStream, ServerCallContext context)
+    {
+        if (!_watchers.ContainsKey(request.RoomId))
         {
             _watchers[request.RoomId] = new List<IServerStreamWriter<GameState>>();
         }
@@ -143,19 +143,14 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
         }
 
         _watchers[request.RoomId].Remove(responseStream);
-     }
+    }
 
     public override Task<GameState> Surrender(JoinRoomRequest request, ServerCallContext context)
     {
-        var room = _roomManager.GetRoom(request.RoomId);
-        if(room == null)
-        {
-            throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
-        }
-
-        room.Status =  GameStatus.Finished;
-        string winnerId = room.Player1.Name == request.PlayerName 
-            ? (room.Player2?.Id ?? string.Empty) 
+        var room = _roomManager.GetRoom(request.RoomId) ?? throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
+        room.Status = GameStatus.Finished;
+        string winnerId = room.Player1.Name == request.PlayerName
+            ? (room.Player2?.Id ?? string.Empty)
             : room.Player1.Id;
         room.WinnerId = winnerId;
 
@@ -166,26 +161,26 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     }
 
     // 양방향 스트리밍 (실시간 플레이)
-    public override async Task PlayGame(IAsyncStreamReader<PlaceStoneRequest> requestStream, 
+    public override async Task PlayGame(IAsyncStreamReader<PlaceStoneRequest> requestStream,
         IServerStreamWriter<GameState> responseStream, ServerCallContext context)
+    {
+        await foreach (var request in requestStream.ReadAllAsync())
         {
-            await foreach (var request in requestStream.ReadAllAsync())
-            {
-                var room = _roomManager.GetRoom(request.RoomId);
-                if (room == null) continue;
+            var room = _roomManager.GetRoom(request.RoomId);
+            if (room == null) continue;
 
-                var (success, _) = _gameLogic.PlaceStone(room, request.Position.Row, request.Position.Col, request.PlayerId);
-            
-                if (success)
-                {
-                    var winnerId = room.Status == GameStatus.Finished ? request.PlayerId : null;
-                    var gameState = _gameLogic.GetGameState(room, winnerId);
-                    await responseStream.WriteAsync(gameState);
-                    NotifyWatchers(request.RoomId, gameState);
-                }
-                
+            var (success, _) = _gameLogic.PlaceStone(room, request.Position.Row, request.Position.Col, request.PlayerId);
+
+            if (success)
+            {
+                var winnerId = room.Status == GameStatus.Finished ? request.PlayerId : null;
+                var gameState = _gameLogic.GetGameState(room, winnerId);
+                await responseStream.WriteAsync(gameState);
+                NotifyWatchers(request.RoomId, gameState);
             }
+
         }
+    }
 
     private async void NotifyWatchers(string roomId, GameState gameState)
     {
@@ -209,4 +204,4 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     }
 
 
-} 
+}
