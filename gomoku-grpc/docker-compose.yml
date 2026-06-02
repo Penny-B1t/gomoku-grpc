@@ -1,0 +1,23 @@
+services:
+  gomoku-server:
+    image: gomoku-server:latest
+    build:
+      context: .
+      dockerfile: src/server/GomokuServer/Dockerfile
+    ports:
+      - "5224:5224"
+    restart: unless-stopped
+
+  gomoku-client-web:
+    image: gomoku-client-web:latest
+    build:
+      context: .
+      dockerfile: src/client/GomokuClient.Web/Dockerfile
+    ports:
+      - "5051:5051"
+    environment:
+      - GameServerUrl=http://gomoku-server:5224
+      - ASPNETCORE_ENVIRONMENT=Development
+    depends_on:
+      - gomoku-server
+    restart: unless-stopped
