@@ -234,8 +234,11 @@
                     '<span class="text-primary">🏆 승리했습니다!</span>' : 
                     '<span class="text-danger">😢 패배했습니다.</span>');
                 surrenderBtn.hide();
+                if (!gameOver) {
+                    addLog('게임이 종료되었습니다.');
+                    clearInterval(pollingInterval); // 게임 종료 시 폴링 중지
+                }
                 gameOver = true;
-                addLog('게임이 종료되었습니다.');
             }
             
             // 현재 턴 표시
