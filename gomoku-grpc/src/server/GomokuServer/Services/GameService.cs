@@ -222,14 +222,20 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
             snapshot = watchers.ToList();
         }
 
-        var removeList = new List<IServerStreamWriter<GameState>>();
-        foreach (var writer in snapshot)
+        if (snapshot.Count == 0)
+            return;
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        // 모든 감시자에게 병렬(Concurrent)로 알림을 전송하여 하나의 느린 감시자가 다른 감시자 전송을 막지 않게 합니다.
+        var tasks = snapshot.Select(async writer =>
         {
-            if (!await TryNotifyWatcherAsync(writer, gameState, roomId))
-            {
-                removeList.Add(writer);
-            }
-        }
+            bool success = await TryNotifyWatcherAsync(writer, gameState, roomId, cts.Token);
+            return (Writer: writer, Success: success);
+        }).ToList();
+
+        var results = await Task.WhenAll(tasks);
+        var removeList = results.Where(r => !r.Success).Select(r => r.Writer).ToList();
 
         if (removeList.Count > 0)
         {
@@ -246,12 +252,19 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     private async Task<bool> TryNotifyWatcherAsync(
         IServerStreamWriter<GameState> writer,
         GameState gameState,
-        string roomId)
+        string roomId,
+        CancellationToken cancellationToken)
     {
         try
         {
-            await writer.WriteAsync(gameState);
+            // .WaitAsync()를 적용하여 개별 전송이 지정된 시간(5초)을 넘기면 예외를 발생시키고 취소하도록 합니다.
+            await writer.WriteAsync(gameState).WaitAsync(cancellationToken);
             return true;
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("방 {RoomId} 감시자 알림 전송 타임아웃 (5초 초과)", roomId);
+            return false;
         }
         catch (Exception ex)
         {
