@@ -132,13 +132,20 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     {
         AddWatcher(request.RoomId, responseStream);
 
-        // context 사용자의 연결 환경 정보를 확인하여 연결이 끊어지면 리스트에서 제거합니다.
-        while (!context.CancellationToken.IsCancellationRequested)
+        try
         {
-            await Task.Delay(1000); // 1초 대기 이후 연결 상태 확인
+            // 불필요한 쓰레드 할당 및 점유 방지를 위해 1초 폴링 루프 대신, 취소 토큰이 트리거될 때까지 무한히 비동기 대기 (자원 소모 최소화)
+            await Task.Delay(Timeout.InfiniteTimeSpan, context.CancellationToken);
         }
-
-        RemoveWatcher(request.RoomId, responseStream); // 연결이 끊어진 사용자 제거
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation($"클라이언트 연결이 끊어졌습니다.");
+        }
+        finally
+        {
+            // 모든 상황에서 안전하게 제거되도록 보장
+            RemoveWatcher(request.RoomId, responseStream);
+        }
     }
 
     public override async Task<GameState> Surrender(JoinRoomRequest request, ServerCallContext context)
@@ -257,18 +264,13 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
     {
         try
         {
-            // .WaitAsync()를 적용하여 개별 전송이 지정된 시간(5초)을 넘기면 예외를 발생시키고 취소하도록 합니다.
-            await writer.WriteAsync(gameState).WaitAsync(cancellationToken);
+            // WriteAsync 메서드 매개변수로 직접 CancellationToken을 넘겨 소켓 수준에서 전송을 중단시킴
+            await writer.WriteAsync(gameState, cancellationToken);
             return true;
         }
         catch (OperationCanceledException)
         {
             _logger.LogWarning("방 {RoomId} 감시자 알림 전송 타임아웃 (5초 초과)", roomId);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "방 {RoomId} 감시자에게 알림 전송 실패", roomId);
             return false;
         }
     }

@@ -124,9 +124,9 @@ public class GrpcGameClient : IDisposable
     }
 
     // SSE 엔드포인트에서 사용할 WatchGame 서버 스트리밍 호출
-    public Grpc.Core.AsyncServerStreamingCall<GameState> WatchGameStream(string roomId)
+    public Grpc.Core.AsyncServerStreamingCall<GameState> WatchGameStream(string roomId, CancellationToken cancellationToken = default)
     {
-        return _client.WatchGame(new RoomInfo { RoomId = roomId });
+        return _client.WatchGame(new RoomInfo { RoomId = roomId }, cancellationToken: cancellationToken);
     }
 
     public void Dispose()

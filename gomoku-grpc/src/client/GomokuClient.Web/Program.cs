@@ -37,7 +37,7 @@ app.MapGet("/api/game/watch", async (string roomId, GrpcGameClient gameClient, H
 
     try
     {
-        using var stream = gameClient.WatchGameStream(roomId);
+        using var stream = gameClient.WatchGameStream(roomId, ct);
         while (await stream.ResponseStream.MoveNext(ct))
         {
             var json = formatter.Format(stream.ResponseStream.Current);
