@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GomokuGame.Proto;
 using GomokuServer.Domain.Services;
 using GomokuServer.Infrastructure;
@@ -13,7 +14,8 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
 
     // 실시간 스트림 관리를 위한 자료형 
     // IServerStreamWriter<ExampleResponse> 기본 형태에 string 키(방 ID)를 추가한 형태
-    private static readonly Dictionary<string, List<IServerStreamWriter<GameState>>> _watchers = new();
+    private static readonly ConcurrentDictionary<string, List<IServerStreamWriter<GameState>>> _watchers = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomLocks = new();
 
     public GameService(GameRoomManager roomManager, GameLogicService gameLogic, ILogger<GameService> logger)
     {
@@ -101,7 +103,7 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
         return Task.FromResult(_gameLogic.GetGameState(room));
     }
 
-    public override Task<GameState> PlaceStone(PlaceStoneRequest request, ServerCallContext context)
+    public override async Task<GameState> PlaceStone(PlaceStoneRequest request, ServerCallContext context)
     {
         var room = _roomManager.GetRoom(request.RoomId);
         if (room == null)
@@ -121,31 +123,25 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
 
         // 현재 room에 존재하는 사용자들에게 실시간으로 게임 진행 상황을 전달합니다.
         // return은 현재 사용자에게 NotifyWatchers는 나머지 사용자들에게 정보 전달
-        NotifyWatchers(request.RoomId, gameState);
+        await NotifyAllWatcherAsync(request.RoomId, gameState);
 
-        return Task.FromResult(gameState);
+        return gameState;
     }
 
-    // 소켓 서버에서 socket을 저장하는 것과 동일한 역할을 합니다.
-    // 하지만 grpc는 IServerStreamWriter<>를 사용합니다.
     public override async Task WatchGame(RoomInfo request, IServerStreamWriter<GameState> responseStream, ServerCallContext context)
     {
-        if (!_watchers.ContainsKey(request.RoomId))
-        {
-            _watchers[request.RoomId] = new List<IServerStreamWriter<GameState>>();
-        }
-        _watchers[request.RoomId].Add(responseStream);
+        AddWatcher(request.RoomId, responseStream);
 
         // context 사용자의 연결 환경 정보를 확인하여 연결이 끊어지면 리스트에서 제거합니다.
         while (!context.CancellationToken.IsCancellationRequested)
         {
-            await Task.Delay(1000);
+            await Task.Delay(1000); // 1초 대기 이후 연결 상태 확인
         }
 
-        _watchers[request.RoomId].Remove(responseStream);
+        RemoveWatcher(request.RoomId, responseStream); // 연결이 끊어진 사용자 제거
     }
 
-    public override Task<GameState> Surrender(JoinRoomRequest request, ServerCallContext context)
+    public override async Task<GameState> Surrender(JoinRoomRequest request, ServerCallContext context)
     {
         var room = _roomManager.GetRoom(request.RoomId) ?? throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
         room.Status = GameStatus.Finished;
@@ -155,9 +151,9 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
         room.WinnerId = winnerId;
 
         var gameState = _gameLogic.GetGameState(room, winnerId);
-        NotifyWatchers(request.RoomId, gameState);
+        await NotifyAllWatcherAsync(request.RoomId, gameState);
 
-        return Task.FromResult(gameState);
+        return gameState;
     }
 
     // 양방향 스트리밍 (실시간 플레이)
@@ -176,32 +172,92 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
                 var winnerId = room.Status == GameStatus.Finished ? request.PlayerId : null;
                 var gameState = _gameLogic.GetGameState(room, winnerId);
                 await responseStream.WriteAsync(gameState);
-                NotifyWatchers(request.RoomId, gameState);
+                await NotifyAllWatcherAsync(request.RoomId, gameState);
             }
 
         }
     }
 
-    private async void NotifyWatchers(string roomId, GameState gameState)
+    public void AddWatcher(string roomId, IServerStreamWriter<GameState> writer)
     {
-        if (_watchers.ContainsKey(roomId))
-        {
-            var deadWriters = new List<IServerStreamWriter<GameState>>();
-            foreach (var watcher in _watchers[roomId])
+        _watchers.AddOrUpdate(
+            roomId,
+            new List<IServerStreamWriter<GameState>>() { writer },
+            (_, list) =>
             {
-                try
+                lock (list)
                 {
-                    await watcher.WriteAsync(gameState);
+                    list.Add(writer);
                 }
-                catch
-                {
-                    deadWriters.Add(watcher);
-                }
+
+                return list;
+            });
+
+        _logger.LogDebug("방 {RoomId}에 감시자 추가 (현재: {Count})", roomId, _watchers[roomId].Count);
+    }
+
+    public void RemoveWatcher(string roomId, IServerStreamWriter<GameState> writer)
+    {
+        if (_watchers.TryGetValue(roomId, out var watchers))
+        {
+            lock (watchers)
+            {
+                watchers.Remove(writer);
             }
-            foreach (var dead in deadWriters)
-                _watchers[roomId].Remove(dead);
+            _logger.LogDebug("방 {RoomId}에서 감시자 제거 (남은: {Count})",
+                roomId, watchers.Count);
+        }
+
+    }
+
+    public async Task NotifyAllWatcherAsync(string roomId, GameState gameState)
+    {
+        if (!_watchers.TryGetValue(roomId, out var watchers))
+            return;
+
+        List<IServerStreamWriter<GameState>> snapshot;
+
+        lock (watchers)
+        {
+            snapshot = watchers.ToList();
+        }
+
+        var removeList = new List<IServerStreamWriter<GameState>>();
+        foreach (var writer in snapshot)
+        {
+            if (!await TryNotifyWatcherAsync(writer, gameState, roomId))
+            {
+                removeList.Add(writer);
+            }
+        }
+
+        if (removeList.Count > 0)
+        {
+            lock (watchers)
+            {
+                foreach (var dead in removeList)
+                    watchers.Remove(dead);
+            }
+
+            _logger.LogInformation("방 {RoomId}에서 {Count}명의 연결 끊긴 감시자 제거", roomId, removeList.Count);
         }
     }
 
+    private async Task<bool> TryNotifyWatcherAsync(
+        IServerStreamWriter<GameState> writer,
+        GameState gameState,
+        string roomId)
+    {
+        try
+        {
+            await writer.WriteAsync(gameState);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "방 {RoomId} 감시자에게 알림 전송 실패", roomId);
+            return false;
+        }
+    }
 
 }
