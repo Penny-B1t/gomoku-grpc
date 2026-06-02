@@ -12,7 +12,7 @@ public class GameRoom
     public GameStatus Status { get; set; } = GameStatus.Waiting;
     public int CurrentPlayerNumber { get; set; } = 1; // 1부터 시작 (흑돌)
     public string WinnerId { get; set; } = string.Empty;
-    public DateTime CreatedAt { get; } = DateTime.UtcNow; 
+    public DateTime CreatedAt { get; } = DateTime.UtcNow;
 
     public GameRoom(string name, string creatorName, int boradSize = 15)
     {
@@ -26,7 +26,7 @@ public class GameRoom
     {
         player = null;
         // 방이 대기 상태가 아니면서 플레이어가 비어있지 않은 경우 조기 탈출
-        if( Status != GameStatus.Waiting || Player2 != null)
+        if (Status != GameStatus.Waiting || Player2 != null)
         {
             return false;
         }

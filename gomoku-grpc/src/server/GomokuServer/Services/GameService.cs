@@ -146,7 +146,7 @@ public class GameService : GomokuGame.Proto.GameService.GameServiceBase
         var room = _roomManager.GetRoom(request.RoomId) ?? throw new RpcException(new Status(StatusCode.NotFound, "방을 찾을 수 없습니다."));
         room.Status = GameStatus.Finished;
         string winnerId = room.Player1.Name == request.PlayerName
-            ? (room.Player2?.Id ?? string.Empty)
+            ? room.Player2!.Id
             : room.Player1.Id;
         room.WinnerId = winnerId;
 
