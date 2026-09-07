@@ -27,7 +27,6 @@ gRPC와 Server-Sent Events (SSE) 기술을 결합하여 가볍고 빠른 실시�
    GameState 전송   GameState 전송
 ```
 
-![실시간 흐름 시퀀스](sequence_diagram.png)
 
 
 
