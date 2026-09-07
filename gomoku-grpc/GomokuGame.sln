@@ -15,8 +15,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GomokuClient.Web", "src\cli
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GomokuClient.Console", "src\client\GomokuClient.Console\GomokuClient.Console.csproj", "{8425CE36-FF92-4B8C-B08D-011F9E4112C4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GomokuServer.Tests", "src\server\GomokuServer.Tests\GomokuServer.Tests.csproj", "{D795C308-4188-4A97-91CD-AEA1D53082AE}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -63,18 +61,6 @@ Global
 		{8425CE36-FF92-4B8C-B08D-011F9E4112C4}.Release|x64.Build.0 = Release|Any CPU
 		{8425CE36-FF92-4B8C-B08D-011F9E4112C4}.Release|x86.ActiveCfg = Release|Any CPU
 		{8425CE36-FF92-4B8C-B08D-011F9E4112C4}.Release|x86.Build.0 = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|x64.Build.0 = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Debug|x86.Build.0 = Debug|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|x64.ActiveCfg = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|x64.Build.0 = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|x86.ActiveCfg = Release|Any CPU
-		{D795C308-4188-4A97-91CD-AEA1D53082AE}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -85,6 +71,5 @@ Global
 		{C5A3B5EA-BE9F-76E5-E9B8-8A22B289B295} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{8512BF11-308E-4EE8-897E-3DA241C95231} = {C5A3B5EA-BE9F-76E5-E9B8-8A22B289B295}
 		{8425CE36-FF92-4B8C-B08D-011F9E4112C4} = {C5A3B5EA-BE9F-76E5-E9B8-8A22B289B295}
-		{D795C308-4188-4A97-91CD-AEA1D53082AE} = {E6B48023-E680-40DA-9E17-319585C26937}
 	EndGlobalSection
 EndGlobal

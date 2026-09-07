@@ -42,17 +42,17 @@ public class GameBoard
     // 돌을 놓았을 당시 사용자가 이겼는지 여부 확인
     public bool CheckWin(int row, int col, int playerNumber)
     {
-        // 4개 방향축: 세로(1,0) · 가로(0,1) · 주대각선 \ (1,1) · 반대각선 / (1,-1)
-        // 각 축은 아래에서 (dx,dy)와 (-dx,-dy) 양방향으로 스캔되므로 8방향을 모두 포함한다.
-        int[] dx = { 1, 0, 1, 1 };
-        int[] dy = { 0, 1, 1, -1 };
+        
+        int[] dx = { 1, 0, 1, -1 };
+        int[] dy = { 0, 1, -1, 1 };
 
+        // 인덱스로 인하여 전체 길이에서 -1 만큼 동작
         for ( int i = 0; i < 4; i++)
         {
             // 현재 검사 중심에 놓인 돌 1개 포함
             int count = 1;
 
-            // 축을 기준으로 양방향 검사
+            // 양반향 검사 ex) 상하 좌우
             count += CountDirection(row, col, dx[i], dy[i], playerNumber);
             count += CountDirection(row, col, -dx[i], -dy[i], playerNumber);
 
@@ -61,7 +61,7 @@ public class GameBoard
                 return true;
             }
         }
-
+        
         return false;
     }
 
